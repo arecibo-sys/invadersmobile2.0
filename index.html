@@ -44,9 +44,10 @@
       width: 100%;
       flex-shrink: 0;
       display: flex;
-      align-items: center;
+      align-items: flex-end;
       justify-content: center;
       gap: 24px;
+      padding-bottom: 20px;
       background: #000;
       border-top: 1px solid #003300;
     }
@@ -118,10 +119,10 @@ const controlsEl = document.getElementById('controls');
 
 function resize() {
   const sw = window.innerWidth, sh = window.innerHeight;
-  const ctrlH = Math.max(100, Math.floor(sh * 0.18));
+  const ctrlH = Math.max(150, Math.floor(sh * 0.30));
   controlsEl.style.height = ctrlH + 'px';
-  const fireSize = Math.floor(ctrlH * 0.72);
-  const pauseSize = Math.floor(ctrlH * 0.36);
+  const fireSize = Math.floor(ctrlH * 0.62);
+  const pauseSize = Math.floor(ctrlH * 0.28);
   document.getElementById('btnFire').style.width  = fireSize + 'px';
   document.getElementById('btnFire').style.height = fireSize + 'px';
   document.getElementById('btnPause').style.width  = pauseSize + 'px';

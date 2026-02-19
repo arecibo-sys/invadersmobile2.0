@@ -90,6 +90,53 @@
       color: #002200;
       white-space: nowrap;
     }
+    /* Virtual joystick */
+    #joystickArea {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    #joystickBase {
+      border-radius: 50%;
+      background: radial-gradient(circle at 40% 35%, #001f00 30%, #000a00 100%);
+      border: 3px solid #006622;
+      box-shadow: 0 0 14px #003311, inset 0 0 14px #000800;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: none;
+      flex-shrink: 0;
+    }
+    #joystickBase.active {
+      border-color: #00FF41;
+      box-shadow: 0 0 28px #00FF4180, inset 0 0 16px #001500;
+    }
+    #joystickKnob {
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #00FF41, #005522);
+      border: 2px solid #00CC33;
+      position: absolute;
+      pointer-events: none;
+      box-shadow: 0 0 10px #00FF4199;
+      transition: transform 0.04s ease-out;
+    }
+    #joystickBase.active #joystickKnob {
+      box-shadow: 0 0 18px #00FF41;
+    }
+    .ctrl-hint {
+      font-size: 9px;
+      letter-spacing: 1px;
+      color: #003300;
+      font-family: monospace;
+      white-space: nowrap;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -98,6 +145,12 @@
   <canvas id="overlay"></canvas>
 </div>
 <div id="controls">
+  <div id="joystickArea">
+    <div id="joystickBase">
+      <div id="joystickKnob"></div>
+    </div>
+    <span class="ctrl-hint">DRAG=MOVE · TAP=FIRE</span>
+  </div>
   <div class="btn" id="btnFire">▲<span class="btn-hint">FIRE</span></div>
   <div class="btn" id="btnPause">II</div>
 </div>
@@ -121,8 +174,14 @@ function resize() {
   const sw = window.innerWidth, sh = window.innerHeight;
   const ctrlH = Math.max(150, Math.floor(sh * 0.30));
   controlsEl.style.height = ctrlH + 'px';
-  const fireSize = Math.floor(ctrlH * 0.62);
-  const pauseSize = Math.floor(ctrlH * 0.28);
+  const joySize  = Math.floor(ctrlH * 0.72);
+  const fireSize = Math.floor(ctrlH * 0.52);
+  const pauseSize = Math.floor(ctrlH * 0.26);
+  const knobSize = Math.floor(joySize * 0.42);
+  document.getElementById('joystickBase').style.width  = joySize + 'px';
+  document.getElementById('joystickBase').style.height = joySize + 'px';
+  document.getElementById('joystickKnob').style.width  = knobSize + 'px';
+  document.getElementById('joystickKnob').style.height = knobSize + 'px';
   document.getElementById('btnFire').style.width  = fireSize + 'px';
   document.getElementById('btnFire').style.height = fireSize + 'px';
   document.getElementById('btnPause').style.width  = pauseSize + 'px';
@@ -748,45 +807,89 @@ function initTitle() {
 }
 
 // ============================================================
-// INPUT — DRAG TO MOVE + ONE FIRE BUTTON
+// INPUT — VIRTUAL JOYSTICK + FIRE BUTTON
 // ============================================================
 const keys = {};
-let touchTargetX = null; // cannon follows finger X on canvas
 
-// Canvas: drag to move cannon
+// Canvas: tap for state transitions only (no drag-to-move)
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   if(!audioCtx) initAudio();
   if(state===GS.TITLE){ initGame(); return; }
   if(state===GS.GAME_OVER){ state=GS.TITLE; initTitle(); return; }
-  const rect = canvas.getBoundingClientRect();
-  touchTargetX = (e.touches[0].clientX - rect.left) / SCALE - 6;
 }, {passive:false});
 
-canvas.addEventListener('touchmove', e => {
-  e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  touchTargetX = (e.touches[0].clientX - rect.left) / SCALE - 6;
-}, {passive:false});
-
-canvas.addEventListener('touchend', e => {
-  e.preventDefault();
-  touchTargetX = null;
-}, {passive:false});
-
-// Mouse fallback (desktop testing)
-canvas.addEventListener('mousemove', e => {
-  if(e.buttons === 1) {
-    const rect = canvas.getBoundingClientRect();
-    touchTargetX = (e.clientX - rect.left) / SCALE - 6;
-  }
-});
-canvas.addEventListener('mouseup', () => { touchTargetX = null; });
 canvas.addEventListener('click', () => {
   if(!audioCtx) initAudio();
   if(state===GS.TITLE) initGame();
   else if(state===GS.GAME_OVER){ state=GS.TITLE; initTitle(); }
 });
+
+// ============================================================
+// VIRTUAL JOYSTICK
+// ============================================================
+const joystickBase = document.getElementById('joystickBase');
+const joystickKnob = document.getElementById('joystickKnob');
+
+let joystickActive  = false;
+let joystickStartX  = 0;
+let joystickStartTime = 0;
+let joystickDX      = 0;   // normalised -1..1 (horizontal)
+let joystickFireTrigger = false;
+
+const JOY_TAP_MS = 220;   // max duration (ms) counted as a tap
+const JOY_TAP_PX = 20;    // max finger drift (px) counted as a tap
+
+function setJoyKnob(offsetPx) {
+  joystickKnob.style.transform = `translateX(${offsetPx}px)`;
+}
+
+joystickBase.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if(!audioCtx) initAudio();
+  if(state===GS.TITLE){ initGame(); return; }
+  if(state===GS.GAME_OVER){ state=GS.TITLE; initTitle(); return; }
+  joystickActive    = true;
+  joystickStartX    = e.touches[0].clientX;
+  joystickStartTime = Date.now();
+  joystickDX        = 0;
+  joystickBase.classList.add('active');
+  setJoyKnob(0);
+}, {passive:false});
+
+joystickBase.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if(!joystickActive) return;
+  const rect      = joystickBase.getBoundingClientRect();
+  const knobR     = joystickKnob.getBoundingClientRect().width / 2;
+  const maxOffset = rect.width / 2 - knobR;
+  const rawDX     = e.touches[0].clientX - joystickStartX;
+  const clampedDX = Math.max(-maxOffset, Math.min(maxOffset, rawDX));
+  joystickDX      = clampedDX / maxOffset;  // -1..1
+  setJoyKnob(clampedDX);
+}, {passive:false});
+
+joystickBase.addEventListener('touchend', e => {
+  e.preventDefault();
+  if(!joystickActive) return;
+  const elapsed   = Date.now() - joystickStartTime;
+  const totalMove = Math.abs(e.changedTouches[0].clientX - joystickStartX);
+  // Short, nearly-still touch → fire
+  if(elapsed < JOY_TAP_MS && totalMove < JOY_TAP_PX && state===GS.PLAYING) {
+    joystickFireTrigger = true;
+  }
+  joystickActive = false;
+  joystickDX     = 0;
+  joystickBase.classList.remove('active');
+  setJoyKnob(0);
+}, {passive:false});
+
+joystickBase.addEventListener('touchcancel', e => {
+  joystickActive = false;
+  joystickDX     = 0;
+  joystickBase.classList.remove('active');
+  setJoyKnob(0);
+}, {passive:false});
 
 // Fire button
 const btnFire = document.getElementById('btnFire');
@@ -873,24 +976,30 @@ let lastFireState = false;
 function updatePlayer(dt) {
   if (!player.alive) return;
 
-  // Touch drag: cannon snaps to finger X
-  if (touchTargetX !== null) {
-    const tx = Math.max(8, Math.min(W - 21, touchTargetX));
-    const diff = tx - player.x;
-    // Move fast toward finger but cap speed so it feels controlled
-    player.x += Math.sign(diff) * Math.min(Math.abs(diff), 4);
+  // Virtual joystick: relative left/right movement
+  if (joystickActive) {
+    const deadzone = 0.12;
+    const absVal   = Math.abs(joystickDX);
+    if (absVal > deadzone) {
+      // Scale speed 0→4 px/frame as stick moves from deadzone edge to full
+      const speed = 4 * ((absVal - deadzone) / (1 - deadzone));
+      player.x += Math.sign(joystickDX) * speed;
+      player.x  = Math.max(8, Math.min(W - 21, player.x));
+    }
   }
 
-  // Keyboard fallback
-  if ((keys['ArrowLeft']||keys['KeyA']) && player.x > 8)  player.x -= 1.5;
+  // Keyboard fallback (desktop)
+  if ((keys['ArrowLeft']||keys['KeyA']) && player.x > 8)    player.x -= 1.5;
   if ((keys['ArrowRight']||keys['KeyD']) && player.x < W-21) player.x += 1.5;
 
-  const fireNow = keys['Fire']||keys['Space']||keys['KeyZ']||keys['KeyW'];
+  // Fire: button / keyboard / joystick tap
+  const fireNow = keys['Fire']||keys['Space']||keys['KeyZ']||keys['KeyW']||joystickFireTrigger;
   if (fireNow && !lastFireState && !playerBullet) {
     playerBullet = { x: player.x+6, y: player.y-2 };
     sfxShoot();
   }
-  lastFireState = fireNow;
+  lastFireState       = fireNow;
+  joystickFireTrigger = false;  // consume the one-shot trigger
 }
 
 function updatePlayerBullet() {
@@ -1084,8 +1193,8 @@ function drawTitle() {
 
   if (Math.floor(frameCount/28)%2)
     drawText(ctx,'TAP SCREEN TO PLAY', 17, 170, '#FFFFFF');
-  drawText(ctx,'DRAG SCREEN = MOVE', 20, 186, '#003300');
-  drawText(ctx,'TAP FIRE BUTTON = SHOOT', 8, 198, '#002200');
+  drawText(ctx,'DRAG JOYSTICK = MOVE', 17, 186, '#003300');
+  drawText(ctx,'TAP JOYSTICK = FIRE', 20, 198, '#002200');
 }
 
 function drawHUD() {

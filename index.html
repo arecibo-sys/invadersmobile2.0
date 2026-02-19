@@ -978,11 +978,12 @@ function updatePlayer(dt) {
 
   // Virtual joystick: relative left/right movement
   if (joystickActive) {
-    const deadzone = 0.12;
+    const deadzone = 0.22;            // wider dead zone — ignore micro-drifts
+    const maxSpeed = 2.5;             // px/frame at full deflection (was 4)
     const absVal   = Math.abs(joystickDX);
     if (absVal > deadzone) {
-      // Scale speed 0→4 px/frame as stick moves from deadzone edge to full
-      const speed = 4 * ((absVal - deadzone) / (1 - deadzone));
+      // Linear ramp from 0 at deadzone edge to maxSpeed at full stick
+      const speed = maxSpeed * ((absVal - deadzone) / (1 - deadzone));
       player.x += Math.sign(joystickDX) * speed;
       player.x  = Math.max(8, Math.min(W - 21, player.x));
     }
